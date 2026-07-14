@@ -16,7 +16,10 @@ max_total_entries: 60
 feeds:
   # ---------- 国际 (World) — first-hand wire + objective ----------
   - name: Reuters World
-    url: https://www.reuters.com/arc/outboundfeeds/rss/category/world/?output_type=xml
+    # Reuters shut down its public RSS (the arc/outboundfeeds URLs now 404).
+    # Use Google News aggregation scoped to site:reuters.com so the content is
+    # still Reuters wire copy, fetched via Google's RSS. `when:1d` = last 24h.
+    url: https://news.google.com/rss/search?q=site:reuters.com+when:1d&hl=en
     category: 国际
   - name: NPR News
     url: https://feeds.npr.org/1001/rss.xml
@@ -24,7 +27,9 @@ feeds:
 
   # ---------- 财经 (Finance) — primary financial publishers ----------
   - name: Reuters Business
-    url: https://www.reuters.com/arc/outboundfeeds/rss/category/business-finance/?output_type=xml
+    # Same as Reuters World above: Google News aggregation of site:reuters.com,
+    # narrowed to business/finance stories via keyword.
+    url: https://news.google.com/rss/search?q=site:reuters.com+business+when:1d&hl=en
     category: 财经
   - name: CNBC Top News
     url: https://www.cnbc.com/id/100003114/device/rss/rss.html

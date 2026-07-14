@@ -1,6 +1,7 @@
 """Markdown digest generation."""
 from __future__ import annotations
 
+import html
 import re
 from collections import defaultdict
 from datetime import date
@@ -13,8 +14,14 @@ _WS_RE = re.compile(r"\s+")
 
 
 def _strip_html(text: str) -> str:
-    """Very light HTML stripping for summaries (no extra deps)."""
+    """Light HTML stripping for summaries (no extra deps).
+
+    Order matters: strip tags first, then unescape entities (so entities that
+    survived in tag-stripped text like &amp; &#160; &nbsp; become readable),
+    then collapse whitespace.
+    """
     text = _TAG_RE.sub("", text)
+    text = html.unescape(text)
     return _WS_RE.sub(" ", text).strip()
 
 
