@@ -1,36 +1,70 @@
-"""Webhook notification senders (WeChat Work and DingTalk)."""
+"""Webhook notification senders.
+
+Push channels are auto-detected from the WEBHOOK_URL domain, so a single
+secret covers all of them:
+
+  - qyapi.weixin.qq.com  -> WeChat Work group robot (企业微信群机器人)
+  - oapi.dingtalk.com     -> DingTalk custom robot (钉钉自定义机器人)
+  - sctapi.ftqq.com       -> Server酱 -> personal WeChat (个人微信)
+  - pushplus.plus         -> PushPlus -> personal WeChat (个人微信)
+
+The personal-WeChat channels exist because plain WeChat group chats do NOT
+support webhooks; Server酱 / PushPlus relay through their 公众号 instead.
+"""
 from __future__ import annotations
 
 import sys
+from typing import Callable
 
 import requests
 
 
 def send_wechat_work(webhook_url: str, content: str) -> bool:
-    """Send a markdown message to a WeChat Work group robot.
-
-    Webhook format: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=XXX
-    """
-    payload = {
-        "msgtype": "markdown",
-        "markdown": {"content": content},
-    }
-    return _post(webhook_url, payload, "WeChat Work")
+    """Send a markdown message to a WeChat Work group robot."""
+    payload = {"msgtype": "markdown", "markdown": {"content": content}}
+    return _post(webhook_url, payload, "WeChat Work",
+                 ok=lambda d: d.get("errcode", 0) == 0)
 
 
 def send_dingtalk(webhook_url: str, title: str, text: str) -> bool:
-    """Send a markdown message to a DingTalk group robot.
+    """Send a markdown message to a DingTalk group robot."""
+    payload = {"msgtype": "markdown", "markdown": {"title": title, "text": text}}
+    return _post(webhook_url, payload, "DingTalk",
+                 ok=lambda d: d.get("errcode", 0) == 0)
 
-    Webhook format: https://oapi.dingtalk.com/robot/send?access_token=XXX
+
+def send_serverchan(webhook_url: str, content: str, title: str) -> bool:
+    """Push to personal WeChat via Server酱 (ServerChan).
+
+    Get a sendkey at https://sct.ftqq.com/ (微信扫码登录), then set
+    WEBHOOK_URL = https://sctapi.ftqq.com/{SENDKEY}.send . Messages arrive in
+    your WeChat through the Server酱 小程序/公众号. Free tier = 5 msgs/day,
+    plenty for a daily digest. Success = code == 0.
     """
-    payload = {
-        "msgtype": "markdown",
-        "markdown": {"title": title, "text": text},
-    }
-    return _post(webhook_url, payload, "DingTalk")
+    payload = {"title": title, "desp": content}
+    return _post(webhook_url, payload, "Server酱",
+                 ok=lambda d: d.get("code", -1) == 0)
 
 
-def _post(url: str, payload: dict, name: str) -> bool:
+def send_pushplus(webhook_url: str, content: str, title: str) -> bool:
+    """Push to personal WeChat via PushPlus.
+
+    Get a token at https://www.pushplus.plus/ (微信扫码登录 + 关注公众号), then
+    set WEBHOOK_URL = https://www.pushplus.plus/send?token={TOKEN} . Free tier
+    is generous. Success = code == 200.
+    """
+    payload = {"title": title, "content": content, "template": "markdown"}
+    return _post(webhook_url, payload, "PushPlus",
+                 ok=lambda d: d.get("code", -1) == 200)
+
+
+def _post(url: str, payload: dict, name: str,
+          ok: Callable[[dict], bool]) -> bool:
+    """POST JSON and check the response with the channel-specific `ok` test.
+
+    WeChat/DingTalk use errcode==0, Server酱 uses code==0, PushPlus uses
+    code==200 -- so each sender passes its own success predicate.
+    """
     try:
         resp = requests.post(url, json=payload, timeout=15)
     except Exception as e:
@@ -42,9 +76,12 @@ def _post(url: str, payload: dict, name: str) -> bool:
               file=sys.stderr)
         return False
 
-    # Both WeChat and DingTalk return errcode=0 on success.
-    data = resp.json()
-    if data.get("errcode", 0) == 0:
+    try:
+        data = resp.json()
+    except ValueError:
+        data = {}
+
+    if ok(data):
         print(f"[info] {name} notification sent", file=sys.stderr)
         return True
     print(f"[warn] {name} API error: {data}", file=sys.stderr)
@@ -52,13 +89,17 @@ def _post(url: str, payload: dict, name: str) -> bool:
 
 
 def notify(webhook_url: str, content: str, title: str) -> bool:
-    """Auto-detect webhook type from URL domain and send the message."""
+    """Auto-detect the push channel from the URL domain and send the message."""
     if not webhook_url:
         return False
     if "qyapi.weixin.qq.com" in webhook_url:
         return send_wechat_work(webhook_url, content)
     if "oapi.dingtalk.com" in webhook_url:
         return send_dingtalk(webhook_url, title, content)
+    if "sctapi.ftqq.com" in webhook_url:
+        return send_serverchan(webhook_url, content, title)
+    if "pushplus.plus" in webhook_url:
+        return send_pushplus(webhook_url, content, title)
     masked = webhook_url[:60] + ("..." if len(webhook_url) > 60 else "")
     print(f"[warn] unknown webhook domain, cannot determine type: {masked}",
           file=sys.stderr)
